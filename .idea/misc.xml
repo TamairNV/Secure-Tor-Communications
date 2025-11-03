@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.10 (P2P-Tor-Communications)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.10 (P2P-Tor-Communications)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.9 (Secure-Tor-Communications)" project-jdk-type="Python SDK" />
 </project>

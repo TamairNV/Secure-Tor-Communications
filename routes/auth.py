@@ -82,6 +82,8 @@ def dashboard():
             friends = sort_friends(friends,request.form['search_friend_input'])
 
 
+    if chats is None:
+        chats = []
 
     return render_template('dashboard.html',
                            username=session['username'],

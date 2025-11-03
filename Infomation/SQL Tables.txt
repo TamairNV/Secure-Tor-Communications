@@ -4,13 +4,13 @@ USE p2p_communication;
 -- Minimal version
 CREATE TABLE users (
     user_id UUID PRIMARY KEY,
-    username VARCHAR(32) UNIQUE NOT NULL,
+    username VARCHAR(32) UNIQUE NOT NULL
 );
 
-Create Table Password{
+CREATE TABLE Password (
     user_id UUID PRIMARY KEY,
-    salt VARCHAR(16) NOT NULL,
-}
+    salt VARCHAR(32) NOT NULL
+);
 
 CREATE TABLE onion_keys (
     user_id UUID REFERENCES users(user_id),
@@ -19,13 +19,14 @@ CREATE TABLE onion_keys (
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE message(
-    sender_id UUID REFERENCES users(user_id)ON DELETE CASCADE,
+-- FIX 1: Removed trailing comma and added semicolon
+CREATE TABLE message (
+    sender_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
     receiver_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
     send_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     message BLOB NOT NULL,
     PRIMARY KEY (sender_id, receiver_id)
-)
+);
 
 -- Friend Relationships (bidirectional)
 CREATE TABLE Friend (
@@ -35,6 +36,7 @@ CREATE TABLE Friend (
     PRIMARY KEY (user_id, friend_id),
     CHECK (user_id < friend_id)  -- Ensures no duplicate reciprocal entries
 );
+
 CREATE TABLE FriendRequest (
     request_id UUID PRIMARY KEY NOT NULL,
     sender_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
@@ -61,20 +63,43 @@ CREATE TABLE GroupChatMember (
     UNIQUE(group_id, user_id)
 );
 
-CREATE TABLE GroupChatMessage(
+-- FIX 2: Removed trailing comma
+CREATE TABLE GroupChatMessage (
     ID UUID PRIMARY KEY NOT NULL,
     group_id UUID NOT NULL REFERENCES GroupChat(ID) ON DELETE CASCADE,
     sender_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    message BLOB NOT NULL,
+    message BLOB NOT NULL
 );
 
-CREATE TABLE EncryptedGroupChatMessage(
+CREATE TABLE EncryptedGroupChatMessage (
     ID UUID PRIMARY KEY NOT NULL,
     message_id UUID NOT NULL REFERENCES GroupChatMessage(ID) ON DELETE CASCADE,
     receiver_id UUID NOT NULL REFERENCES GroupChatMember(ID) ON DELETE CASCADE,
     UNIQUE(message_id, receiver_id)
 );
+
+-- FIX 3: Removed trailing comma
+CREATE TABLE messageRead (
+    ID INT AUTO_INCREMENT PRIMARY KEY,
+    group_chat_id UUID NOT NULL,
+    reader UUID NOT NULL,
+    message_id UUID,
+    is_read BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP DEFAULT NOW(),
+
+    -- Explicit foreign key with CASCADE
+    FOREIGN KEY (message_id)
+        REFERENCES groupchatmessage(ID)
+        ON DELETE CASCADE,  -- Critical fix
+
+    -- Other foreign keys (optional)
+    FOREIGN KEY (group_chat_id)
+        REFERENCES groupchat(ID),
+    FOREIGN KEY (reader)
+        REFERENCES users(user_id)
+);
+
 
 -- Create indexes for performance
 CREATE INDEX idx_group_member ON GroupChatMember(group_id);
@@ -204,7 +229,7 @@ CREATE OR REPLACE PROCEDURE register_user(
     IN p_username VARCHAR(32),
     IN p_onion_addr VARCHAR(62),
     IN p_pubkey BLOB,
-    IN p_salt VARCHAR(16)
+    IN p_salt VARCHAR(32)
 )
 BEGIN
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -220,7 +245,7 @@ BEGIN
     INSERT INTO password (user_id, salt) VALUES (p_user_id, p_salt);
     COMMIT;
 END //
-DELIMITER ;
+DELIMITS ;
 
 
 
@@ -236,9 +261,6 @@ CREATE OR REPLACE PROCEDURE create_group_chat(
     IN UUIDs TEXT
 )
 BEGIN
-
-
-
     DECLARE current_pos INT DEFAULT 1;
     DECLARE next_pos INT;
     DECLARE current_id VARCHAR(100);
@@ -251,6 +273,9 @@ BEGIN
         ROLLBACK;
         RESIGNAL;
     END;
+
+    START TRANSACTION; -- Added START TRANSACTION
+
     -- Calculate length of the string
     SET ids_length = LENGTH(user_ids);
     -- create group chat
@@ -271,6 +296,7 @@ BEGIN
 
         -- Trim whitespace
         SET current_id = TRIM(current_id);
+        SET current_UUID = TRIM(current_UUID); -- Added trim for UUID
 
         -- Only insert if ID is not empty
         IF current_id != '' THEN
@@ -284,94 +310,62 @@ BEGIN
 
 
     -- Get the last user ID from the user_ids string using SUBSTRING_INDEX
-    -- SUBSTRING_INDEX(string, delimiter, count) with count = -1 returns
-    -- everything after the last delimiter.
     SET @last_user_id_str = SUBSTRING_INDEX(user_ids, ',', -1);
 
     -- Update the member_type for the last user ID to 'Owner'
-    -- Ensure @last_user_id_str is not empty before updating
     IF @last_user_id_str != '' THEN
         UPDATE GroupChatMember
         SET member_type = 'Owner'
         WHERE group_id = group_chat_id AND
-              user_id = @last_user_id_str; -- Compare with the extracted string value
+              user_id = TRIM(@last_user_id_str); -- Added TRIM
     END IF;
-
 
     COMMIT;
 END //
-
 DELIMITER ;
 
 
-
-
-CREATE TABLE messageRead (
-    ID INT AUTO_INCREMENT PRIMARY KEY,
-    group_chat_id UUID NOT NULL,
-    reader UUID NOT NULL,
-    message_id UUID,
-    is_read BOOLEAN DEFAULT FALSE,
-    read_at TIMESTAMP DEFAULT NOW(),
-
-    -- Explicit foreign key with CASCADE
-    FOREIGN KEY (message_id)
-        REFERENCES groupchatmessage(ID)
-        ON DELETE CASCADE,  -- Critical fix
-
-    -- Other foreign keys (optional)
-    FOREIGN KEY (group_chat_id)
-        REFERENCES groupchat(ID),
-    FOREIGN KEY (reader)
-        REFERENCES users(user_id)
-);
-
+-- FIX 4: Replaced slow WHILE loop with fast INSERT...SELECT
 DELIMITER //
 CREATE OR REPLACE PROCEDURE send_message(
-    IN message_id UUID,
-    IN group_id UUID,
-    IN sender_id UUID,
-    IN messageJson BLOB
+    IN p_message_id UUID,
+    IN p_group_id UUID,
+    IN p_sender_id UUID,
+    IN p_messageJson BLOB
 )
 BEGIN
-
-    DECLARE member_number INT;
-    DECLARE i INT default 0;
-    DECLARE current_reader UUID;
-
-
-
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
         ROLLBACK;
         RESIGNAL;
     END;
 
-    INSERT INTO groupchatmessage (ID,group_id,sender_id,message) VALUES (message_id,group_id,sender_id,messageJson);
+    START TRANSACTION;
 
-    SET member_number = (SELECT COUNT(ID) FROM groupchatmember gcm WHERE gcm.group_id = group_id);
-    WHILE i < member_number DO
-        SET current_reader =
-            (SELECT user_id FROM groupchatmember gcm
-                       WHERE gcm.group_id = group_id ORDER BY ID LIMIT 1 OFFSET i);
-        SELECT current_reader;
-        INSERT INTO messageread (group_chat_id,reader,message_id)
-        VALUES (group_id,current_reader,message_id);
-        SET i = i + 1;
-    END WHILE;
+    -- 1. Insert the new message
+    INSERT INTO groupchatmessage (ID, group_id, sender_id, message)
+    VALUES (p_message_id, p_group_id, p_sender_id, p_messageJson);
 
+    -- 2. Create 'unread' receipts for ALL members of the group in one query
+    INSERT INTO messageread (group_chat_id, reader, message_id)
+    SELECT
+        p_group_id,  -- The group ID from the parameter
+        user_id,     -- The user ID from the member table
+        p_message_id -- The new message ID from the parameter
+    FROM
+        groupchatmember
+    WHERE
+        group_id = p_group_id;
+
+    -- 3. Mark the sender's own message as read
     UPDATE messageread
-    SET is_read = 1
-    WHERE reader = sender_id AND group_chat_id = group_id;
+    SET is_read = TRUE,
+        read_at = NOW()
+    WHERE
+        reader = p_sender_id
+      AND group_chat_id = p_group_id
+      AND message_id = p_message_id;
 
     COMMIT;
 END //
-
 DELIMITER ;
-
-
-
-
-
-
-

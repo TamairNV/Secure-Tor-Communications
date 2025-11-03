@@ -13,7 +13,7 @@ from utils.tor import get_onion_address
 
 s = socket.socket()
 try:
-    s.connect(("127.0.0.1", 9050))
+    s.connect(("127.0.0.1", ))
     print("✅ SOCKS proxy is running on port 9050")
 except:
     print("❌ Tor SOCKS proxy not available on 9050")
