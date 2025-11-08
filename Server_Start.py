@@ -52,4 +52,8 @@ else:
     run this in terminal:
     cd {modified_path}
     tor -f {os.path.abspath("torrc")}
+    
+    and maybe this 
+    chmod 700 /Users/tamer/Desktop/FlaskUni/Secure-Tor-Communications/tor/tor_hidden_service/
+    chmod 700 /Users/tamer/Desktop/FlaskUni/Secure-Tor-Communications/tor/tor_hidden_service_mysql/
     """)
