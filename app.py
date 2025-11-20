@@ -54,6 +54,21 @@ def setup():
             <br><br>
             <a href="/">Go to Login</a>
             """
+
+        elif role == 'join':
+            onion_link = request.form.get('onion_link')
+
+            # 1. Start Tor as Client (Proxy Only)
+            tor_man.start_tor(mode='client')
+
+            # 2. Configure DB to use the Onion Link
+            APP_STATE['db_host'] = onion_link
+            sql_manager.configure_connection(onion_link)
+
+            APP_STATE['role'] = 'client'
+            APP_STATE['setup_complete'] = True
+
+            return redirect(url_for('index'))
     return """
         <h1>Secure Chat Setup</h1>
         <form method="POST">
