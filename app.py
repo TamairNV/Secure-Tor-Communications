@@ -60,4 +60,4 @@ if __name__ == '__main__':
     app.register_blueprint(friend_bp, url_prefix='/friend')
 
     # Disable the reloader to prevent multiple initializations of global code and APScheduler
-    app.run(port=8000, debug=True, use_reloader=False)
+    app.run(port=8001, debug=True, use_reloader=False)

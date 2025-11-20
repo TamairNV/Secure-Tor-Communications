@@ -1,112 +1,75 @@
 import socket
-
-import pymysql
 import socks
+import pymysql
+import time
 from stem import Signal
 from stem.control import Controller
 
-connections = []
-onion_link = '4wfv3o2lpxgz456iv7jubx65frp6ivbzbro2vbxflzmasldjryxv76ad.onion'
+# --- CONFIGURATION ---
+# 1. Connect to the LOCAL Tor proxy on this Mac (not the Windows one)
+PROXY_HOST = "127.0.0.1"
+PROXY_PORT = 9050
+
+# 2. The Onion Address from your Windows 'hostname' file
+ONION_LINK = '4wfv3o2lpxgz456iv7jubx65frp6ivbzbro2vbxflzmasldjryxv76ad.onion'
+
+DB_USER = "root"  # Use the limited user we created earlier!
+DB_PASS = "Tamer@2006"
+DB_NAME = "p2p_communication"
 
 
-# Configure Tor proxy
-def setup_tor_proxy():
-    socks.set_default_proxy(
-        socks.SOCKS5,
-        addr="127.0.0.1",
-        port=9050  # Default Tor SOCKS port
-    )
+# --- THE MONKEY PATCH (Must run once globally) ---
+def patch_socket_for_tor():
+    """
+    Forces Python to use Tor for all connections and prevents
+    local DNS lookups (which would fail for .onion addresses).
+    """
+    socks.set_default_proxy(socks.SOCKS5, PROXY_HOST, PROXY_PORT, rdns=True)
     socket.socket = socks.socksocket
 
-    # Force DNS requests through Tor
+    # Patch getaddrinfo to prevent DNS leaks and handle .onion resolution
     def getaddrinfo(*args):
+        # This tricks Python into passing the hostname directly to the proxy
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (args[0], args[1]))]
 
     socket.getaddrinfo = getaddrinfo
+    print(f"🛡️  Tor Mode Enabled. Tunneling via {PROXY_HOST}:{PROXY_PORT}")
 
 
-def renew_tor_identity():
-    """Renew Tor circuit to get a new exit node"""
-    with Controller.from_port(port=9051) as controller:  # Tor control port
-        controller.authenticate()
-        controller.signal(Signal.NEWNYM)
+# Apply the patch immediately
+patch_socket_for_tor()
 
+
+# --- DATABASE FUNCTIONS ---
 
 def get_connection():
-    setup_tor_proxy()
+    print(f"🧅 Connecting to {ONION_LINK}...")
     try:
         return pymysql.connect(
-            host=onion_link,
-            user="root",
-            password="Tamer2006",
-            database="p2p_communication",
+            host=ONION_LINK,
+            user=DB_USER,
+            password=DB_PASS,
+            database=DB_NAME,
             port=3306,
-            connect_timeout=30,
+            connect_timeout=60,  # Tor is slow, give it time
+            read_timeout=60,
+            write_timeout=60,
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
     except pymysql.Error as e:
-        print(f"Connection failed: {e}")
-        # Try renewing Tor circuit and retry once
-        renew_tor_identity()
-        return pymysql.connect(
-            host=onion_link,
-            user="root",
-            password="Tamer2006",
-            database="p2p_communication",
-            port=3306,
-            connect_timeout=30,
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
+        print(f"❌ Connection Error: {e}")
+        return None
 
 
 def test_connection():
-    try:
-        conn = get_connection()
-        print("✅ Connected successfully!")
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT 1")
-            print("✅ Basic query executed:", cursor.fetchone())
+    conn = get_connection()
+    if conn:
+        print("✅ SUCCESS! Connected to Windows DB via Tor.")
         conn.close()
-    except Exception as e:
-        print("❌ Connection failed:", str(e))
+    else:
+        print("⚠️  Failed. Is Tor running on BOTH machines?")
 
 
-# Test the connection
-
-def release_connection(conn):
-    connections.append(conn)
-
-
-def execute_query(query, params=None, fetch=False):
-    result = {
-        'success': False,
-        'results': None,
-        'lastrowid': None,
-        'rowcount': 0,
-        'error': None
-    }
-    conn = None
-    try:
-        conn = get_connection()
-        with conn.cursor() as cursor:
-            cursor.execute(query, params or ())
-
-            if fetch:
-                result['results'] = cursor.fetchall()
-            result['lastrowid'] = cursor.lastrowid
-            result['rowcount'] = cursor.rowcount
-
-            conn.commit()
-            result['success'] = True
-
-    except Exception as err:
-        if conn:
-            conn.rollback()
-        result['error'] = str(err)
-    finally:
-        if conn:
-            release_connection(conn)
-
-    return result
+if __name__ == "__main__":
+    test_connection()
