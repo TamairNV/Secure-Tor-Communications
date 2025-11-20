@@ -207,11 +207,16 @@ def signup():
         session['public_key'] = str_pub
         session['sym_key'] = symmetric_key
 
-        SQL_manager.get_connection().cursor().callproc('register_user', (
-            random_uuid, username,
-            onion_address, str_pub,
-            salt
-        ))
+        SQL_manager.execute_query(
+            "CALL register_user(%s, %s, %s, %s, %s)",
+            params=(
+                random_uuid,
+                username,
+                onion_address,
+                str_pub,
+                salt
+            )
+        )
         print("key added")
         return redirect(url_for('auth.dashboard'))
 

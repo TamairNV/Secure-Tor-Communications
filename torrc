@@ -1,11 +1,6 @@
-
 DataDirectory /Users/tamer/Desktop/FlaskUni/Secure-Tor-Communications/tor/tor_data
-HiddenServiceDir /Users/tamer/Desktop/FlaskUni/Secure-Tor-Communications/tor/tor_hidden_service
-HiddenServicePort 80 127.0.0.1:8000
-
-HiddenServiceDir /Users/tamer/Desktop/FlaskUni/Secure-Tor-Communications/tor/tor_hidden_service_mysql
-HiddenServicePort 3306 127.0.0.1:3306            
-Log notice stdout
 SocksPort 9050
-ControlPort 9051
+Log notice stdout
 CookieAuthentication 1
+HiddenServiceDir /Users/tamer/Desktop/FlaskUni/Secure-Tor-Communications/tor/tor_hidden_service_mysql
+HiddenServicePort 3306 127.0.0.1:3306

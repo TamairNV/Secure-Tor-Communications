@@ -10,7 +10,7 @@ from Code import GroupChat
 from utils import Encryption_Manager, SQL_manager
 
 chat_bp = Blueprint('chat', __name__)
-from app import scheduler, app
+
 
 def get_group_chat_messages(user_id,group_chat_id,username,sym_key):
 
@@ -194,8 +194,15 @@ def create_group_chat():
 
         random_uuid = str(uuid.uuid4())
 
-        SQL_manager.get_connection().cursor().callproc('create_group_chat',
-                                                       (random_uuid, gc_name, friend_ids, friend_member_uuid))
+        SQL_manager.execute_query(
+            "CALL create_group_chat(%s, %s, %s, %s)",
+            params=(
+                random_uuid,
+                gc_name,
+                friend_ids,
+                friend_member_uuid
+            )
+        )
         print("group chat created")
         return redirect(url_for('auth.dashboard'))
 

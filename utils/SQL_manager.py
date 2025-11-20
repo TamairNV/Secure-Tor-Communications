@@ -1,75 +1,112 @@
 import socket
 import socks
 import pymysql
-import time
-from stem import Signal
-from stem.control import Controller
+from pymysql.cursors import DictCursor
 
 # --- CONFIGURATION ---
-# 1. Connect to the LOCAL Tor proxy on this Mac (not the Windows one)
-PROXY_HOST = "127.0.0.1"
-PROXY_PORT = 9050
-
-# 2. The Onion Address from your Windows 'hostname' file
-ONION_LINK = '4wfv3o2lpxgz456iv7jubx65frp6ivbzbro2vbxflzmasldjryxv76ad.onion'
-
-DB_USER = "root"  # Use the limited user we created earlier!
-DB_PASS = "Tamer@2006"
-DB_NAME = "p2p_communication"
+DB_CONFIG = {DB_CONFIG
+    "host":" 192.168.1.24",
+    "user": "root",
+    "password": "Tamer@2006",  # Ideally load this from env variables
+    "db_name": "p2p_communication",
+    "mode": "local"  # 'local' or 'tor'
+}
 
 
-# --- THE MONKEY PATCH (Must run once globally) ---
-def patch_socket_for_tor():
+def configure_connection(target_host):
     """
-    Forces Python to use Tor for all connections and prevents
-    local DNS lookups (which would fail for .onion addresses).
+    Sets the target DB.
+    - If target_host contains '.onion', it enables the Tor proxy.
+    - If target_host is an IP (e.g., 127.0.0.1), it uses a standard connection.
     """
+    DB_CONFIG["host"] = target_host
+
+    if ".onion" in target_host:
+        DB_CONFIG["mode"] = "tor"
+        enable_tor_proxy()
+    else:
+        DB_CONFIG["mode"] = "local"
+        # Note: Once socks is patched globally, it's hard to un-patch without restart.
+        # If switching modes dynamically in one session is required, logic needs to be stricter.
+        # For now, we assume the mode is set once at startup.
+
+
+def enable_tor_proxy():
+    PROXY_HOST = "127.0.0.1"
+    PROXY_PORT = 9050
+
     socks.set_default_proxy(socks.SOCKS5, PROXY_HOST, PROXY_PORT, rdns=True)
     socket.socket = socks.socksocket
 
     # Patch getaddrinfo to prevent DNS leaks and handle .onion resolution
-    def getaddrinfo(*args):
-        # This tricks Python into passing the hostname directly to the proxy
+    def getaddrinfo_patched(*args):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (args[0], args[1]))]
 
-    socket.getaddrinfo = getaddrinfo
-    print(f"🛡️  Tor Mode Enabled. Tunneling via {PROXY_HOST}:{PROXY_PORT}")
+    socket.getaddrinfo = getaddrinfo_patched
+    print(f"🛡️ Tor Proxy Enabled. Tunneling to {DB_CONFIG['host']}")
 
-
-# Apply the patch immediately
-patch_socket_for_tor()
-
-
-# --- DATABASE FUNCTIONS ---
 
 def get_connection():
-    print(f"🧅 Connecting to {ONION_LINK}...")
+    """
+    Establishes a database connection based on the current configuration.
+    Returns a pymysql connection object or None if failed.
+    """
+    if not DB_CONFIG["host"]:
+        # Fallback or explicit error if setup hasn't run
+        print("⚠️ DB Host not configured. Run /setup first.")
+        return None
+
+    print(f"🔌 Connecting to database at {DB_CONFIG['host']}...")
     try:
         return pymysql.connect(
-            host=ONION_LINK,
-            user=DB_USER,
-            password=DB_PASS,
-            database=DB_NAME,
+            host=DB_CONFIG["host"],
+            user=DB_CONFIG["user"],
+            password=DB_CONFIG["password"],
+            database=DB_CONFIG["db_name"],
             port=3306,
-            connect_timeout=60,  # Tor is slow, give it time
+            connect_timeout=60,
             read_timeout=60,
             write_timeout=60,
             charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
+            cursorclass=DictCursor
         )
     except pymysql.Error as e:
         print(f"❌ Connection Error: {e}")
         return None
 
 
-def test_connection():
+def execute_query(query, params=None, fetch=False):
+    """
+    Executes a SQL query safely managing the connection.
+
+    Args:
+        query (str): The SQL query to execute.
+        params (tuple/list): Parameters to substitute in the query.
+        fetch (bool): If True, returns the results of the query.
+
+    Returns:
+        dict: {'results': [rows]} if fetch=True, else {'status': 'success'}
+    """
     conn = get_connection()
-    if conn:
-        print("✅ SUCCESS! Connected to Windows DB via Tor.")
-        conn.close()
-    else:
-        print("⚠️  Failed. Is Tor running on BOTH machines?")
+    if not conn:
+        print("❌ Cannot execute query: No connection established.")
+        return {"results": []}
 
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(query, params)
 
-if __name__ == "__main__":
-    test_connection()
+            if fetch:
+                result = cursor.fetchall()
+                return {"results": result}
+            else:
+                conn.commit()
+                return {"status": "success"}
+
+    except Exception as e:
+        print(f"❌ Query Execution Failed: {e}")
+        return {"results": [], "error": str(e)}
+
+    finally:
+        if conn:
+            conn.close()
