@@ -28,56 +28,43 @@ def setup():
         role = request.form.get('role')
 
         if role == 'host':
-            # 1. Start Tor as Server (Hidden Service)
-            tor_man.start_tor(mode='server')
+            # 1. Check if you manually configured a host in SQL_manager
+            # If sql_manager.DB_CONFIG['host'] is set (e.g. 192.168.1.24), use it.
+            # Otherwise, default to '127.0.0.1'
+            target_ip = sql_manager.DB_CONFIG.get('host') or '127.0.0.1'
 
-            # 2. Get the Onion Link to share
+            # 2. Start Tor (Pass the target_ip so Tor knows where to forward traffic)
+            tor_man.start_tor(mode='server', redirect_ip=target_ip)
+
+            # 3. Get the Onion Link
             onion_link = tor_man.get_db_onion()
 
-            # 3. Configure DB to use Localhost (since we ARE the server)
-            # Using 127.0.0.1 avoids routing our own DB traffic through Tor
-            APP_STATE['db_host'] = '127.0.0.1'
-            sql_manager.configure_connection('127.0.0.1')
+            # 4. Configure DB Connection
+            APP_STATE['db_host'] = target_ip
+            sql_manager.configure_connection(target_ip)
 
             APP_STATE['role'] = 'server'
             APP_STATE['setup_complete'] = True
 
-            # Show the user their special link
             return f"""
             <h1>Server Started!</h1>
-            <p>Share this Onion Link with your friends so they can connect:</p>
+            <p>Database connected at: <b>{target_ip}</b></p>
+            <p>Share this Onion Link with your friends:</p>
             <code>{onion_link}</code>
             <br><br>
             <a href="/">Go to Login</a>
             """
-
-        elif role == 'join':
-            onion_link = request.form.get('onion_link')
-
-            # 1. Start Tor as Client (Proxy Only)
-            tor_man.start_tor(mode='client')
-
-            # 2. Configure DB to use the Onion Link
-            APP_STATE['db_host'] = onion_link
-            sql_manager.configure_connection(onion_link)
-
-            APP_STATE['role'] = 'client'
-            APP_STATE['setup_complete'] = True
-
-            return redirect(url_for('index'))
-
-    # Simple HTML for the setup choice
     return """
-    <h1>Secure Chat Setup</h1>
-    <form method="POST">
-        <h3>I want to:</h3>
-        <button name="role" value="host">Host a Chat Group (Server)</button>
-        <hr>
-        <h3>Or Join a Group:</h3>
-        Enter Friend's Onion Link: <input type="text" name="onion_link" placeholder="example.onion">
-        <button name="role" value="join">Join</button>
-    </form>
-    """
+        <h1>Secure Chat Setup</h1>
+        <form method="POST">
+            <h3>I want to:</h3>
+            <button name="role" value="host">Host a Chat Group (Server)</button>
+            <hr>
+            <h3>Or Join a Group:</h3>
+            Enter Friend's Onion Link: <input type="text" name="onion_link" placeholder="example.onion">
+            <button name="role" value="join">Join</button>
+        </form>
+        """
 
 
 @app.route('/')

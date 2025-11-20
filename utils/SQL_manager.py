@@ -4,9 +4,9 @@ import pymysql
 from pymysql.cursors import DictCursor
 
 # --- CONFIGURATION ---
-DB_CONFIG = {DB_CONFIG
-    "host":" 192.168.1.24",
-    "user": "root",
+DB_CONFIG = {
+    "host":"192.168.1.24",
+    "user": "Home_User",
     "password": "Tamer@2006",  # Ideally load this from env variables
     "db_name": "p2p_communication",
     "mode": "local"  # 'local' or 'tor'

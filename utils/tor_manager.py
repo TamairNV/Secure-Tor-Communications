@@ -30,10 +30,11 @@ class TorManager:
             except Exception as e:
                 print(f"⚠️ Permission warning: {e}")
 
-    def start_tor(self, mode='client'):
+    def start_tor(self, mode='client', redirect_ip='127.0.0.1'):
         """
         mode='server': Enables Hidden Service for MySQL.
         mode='client': Starts Tor as a SOCKS proxy only.
+        redirect_ip: Where the Hidden Service should forward traffic (default 127.0.0.1)
         """
         self._ensure_permissions()
 
@@ -46,10 +47,10 @@ class TorManager:
         ]
 
         if mode == 'server':
-            print("🛠️ Configuring as SERVER (Hidden Service Enabled)...")
+            print(f"🛠️ Configuring as SERVER (Forwarding to {redirect_ip}:3306)...")
             config_lines.append(f"HiddenServiceDir {self.hs_dir_db}")
-            # Map Onion Port 3306 to Local Port 3306
-            config_lines.append("HiddenServicePort 3306 127.0.0.1:3306")
+            # FIX: Use the specific redirect_ip instead of hardcoding 127.0.0.1
+            config_lines.append(f"HiddenServicePort 3306 {redirect_ip}:3306")
         else:
             print("🛠️ Configuring as CLIENT (Connect Only)...")
 
@@ -61,14 +62,17 @@ class TorManager:
 
         # 3. Start Tor
         print(f"🚀 Starting Tor in {mode.upper()} mode...")
-        cmd = [self.tor_bin, '-f', self.torrc_path]
+        if platform.system() == "Windows":
+            cmd = [self.tor_bin, '-f', self.torrc_path]
+        else:
+            cmd = [self.tor_bin, '-f', self.torrc_path]
+
         self.process = subprocess.Popen(cmd)
 
         # Wait for boot
         time.sleep(3)
         if mode == 'server':
             print(f"🧅 Database Onion Address: {self.get_db_onion()}")
-
     def stop_tor(self):
         if platform.system() == "Windows":
             os.system("taskkill /F /IM tor.exe >nul 2>&1")
